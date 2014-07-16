@@ -15,6 +15,11 @@ func main() {
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.OnRequest(goproxy.ReqHostMatches(regexp.MustCompile("^.*$"))).
 		HandleConnect(goproxy.AlwaysMitm)
-	proxy.Verbose = true
+	proxy.OnRequest().DoFunc(func (req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		log.Println(req.Method, req.URL)
+		return req, nil
+	})
+
+	//proxy.Verbose = true
 	log.Fatal(http.ListenAndServe(*addr, proxy))
 }
