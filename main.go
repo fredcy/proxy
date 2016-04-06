@@ -18,7 +18,7 @@ const (
 
 type BufferCloser struct {
 	tipe string
-	Id   string
+	Id   int64
 	R    io.ReadCloser
 }
 
@@ -27,13 +27,13 @@ func (c *BufferCloser) Read(b []byte) (n int, err error) {
 	// log.Printf("%s %s n=%d err=%v", c.tipe, c.Id, n, err)
 	if n > 0 {
 		sep := "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
-		log.Printf("%s %s body: \n%s"+sep, c.tipe, c.Id, string(b[:n]))
+		log.Printf("[%d] %s body: \n%s"+sep, c.Id, c.tipe, string(b[:n]))
 	}
 	return n, err
 }
 
 func (c BufferCloser) Close() error {
-	log.Printf("Close: %s %s\n", c.tipe, c.Id)
+	log.Printf("[%d] Close: %s\n", c.Id, c.tipe)
 	return c.R.Close()
 }
 
@@ -54,33 +54,32 @@ func main() {
 	showHeader := flag.Bool("header", false, "display headers")
 	flag.Parse()
 
+	log.SetFlags(log.Lmicroseconds)
+
 	proxy := goproxy.NewProxyHttpServer()
 
 	proxy.OnRequest(goproxy.ReqHostMatches(regexp.MustCompile(*hostmatch))).
 		HandleConnect(goproxy.AlwaysMitm)
 
 	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-		id := fmt.Sprintf("%v %v", req.Method, req.URL)
-
 		ip, _, err := net.SplitHostPort(req.RemoteAddr)
 		if err != nil {
 			log.Print(err)
 		}
 
-		log.Printf("%s --> %s", ip, id)
+		log.Printf("[%d] %s --> %s %s", ctx.Session, ip, req.Method, req.URL)
 
 		if *showHeader {
 			printHeader(req.Header)
 		}
 		if *showBody {
-			req.Body = &BufferCloser{REQ, id, req.Body}
+			req.Body = &BufferCloser{REQ, ctx.Session, req.Body}
 		}
 		return req, nil
 	})
 
 	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		id := fmt.Sprintf("%v", ctx.Req.URL.String())
-		log.Printf("<-- %d %s", resp.StatusCode, id)
+		log.Printf("[%d] <-- %d %s", ctx.Session, resp.StatusCode, ctx.Req.URL.String())
 
 		location := resp.Header.Get("Location")
 		if location != "" {
@@ -91,7 +90,7 @@ func main() {
 			printHeader(resp.Header)
 		}
 		if *showBody {
-			resp.Body = &BufferCloser{RESP, id, resp.Body}
+			resp.Body = &BufferCloser{RESP, ctx.Session, resp.Body}
 		}
 
 		return resp
