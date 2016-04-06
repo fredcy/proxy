@@ -17,12 +17,6 @@ const (
 	RESP        = "response"
 )
 
-type BufferCloser struct {
-	tipe string
-	Id   int64
-	R    io.ReadCloser
-}
-
 var showBody = flag.Bool("body", false, "display request and response bodies")
 var showHeader = flag.Bool("header", false, "display headers")
 
@@ -30,24 +24,31 @@ var reqBodyColor = color.New(color.FgMagenta).SprintFunc()
 var respBodyColor = color.New(color.FgBlue).SprintFunc()
 var urlColor = color.New(color.FgYellow).SprintFunc()
 
+/* Define a ReadCloser that we will wrap around the ReadCloser associated with
+the body value in each Request and Response. All it does (hopefully) is add a
+side-effect of displaying the body content. */
+
+type BufferCloser struct {
+	tipe string        // REQ or RESP, used just to distinguish in output
+	Id   int64         // the proxy session ID, useful for relating responses to requests
+	R    io.ReadCloser // the wrapped ReadCloser
+}
+
 func (c *BufferCloser) Read(b []byte) (n int, err error) {
 	n, err = c.R.Read(b)
-	// log.Printf("%s %s n=%d err=%v", c.tipe, c.Id, n, err)
 	if n > 0 {
-		sep := "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
 		body := string(b[:n])
 		if c.tipe == REQ {
 			body = reqBodyColor(body)
 		} else {
 			body = respBodyColor(body)
 		}
-		log.Printf("[%d] %s body: \n%s"+sep, c.Id, c.tipe, body)
+		log.Printf("[%d] %s body: \n%s", c.Id, c.tipe, body)
 	}
 	return n, err
 }
 
 func (c BufferCloser) Close() error {
-	//log.Printf("[%d] Close: %s\n", c.Id, c.tipe)
 	return c.R.Close()
 }
 
