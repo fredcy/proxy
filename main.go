@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/elazarl/goproxy"
+	"github.com/fatih/color"
 	"io"
 	"log"
 	"net"
@@ -25,12 +26,22 @@ type BufferCloser struct {
 var showBody = flag.Bool("body", false, "display request and response bodies")
 var showHeader = flag.Bool("header", false, "display headers")
 
+var reqBodyColor = color.New(color.FgMagenta).SprintFunc()
+var respBodyColor = color.New(color.FgBlue).SprintFunc()
+var urlColor = color.New(color.FgYellow).SprintFunc()
+
 func (c *BufferCloser) Read(b []byte) (n int, err error) {
 	n, err = c.R.Read(b)
 	// log.Printf("%s %s n=%d err=%v", c.tipe, c.Id, n, err)
 	if n > 0 {
 		sep := "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
-		log.Printf("[%d] %s body: \n%s"+sep, c.Id, c.tipe, string(b[:n]))
+		body := string(b[:n])
+		if c.tipe == REQ {
+			body = reqBodyColor(body)
+		} else {
+			body = respBodyColor(body)
+		}
+		log.Printf("[%d] %s body: \n%s"+sep, c.Id, c.tipe, body)
 	}
 	return n, err
 }
@@ -54,7 +65,7 @@ func handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *ht
 		log.Print(err)
 	}
 
-	log.Printf("[%d] %s --> %s %s", ctx.Session, ip, req.Method, req.URL)
+	log.Printf("[%d] %s --> %s %s", ctx.Session, ip, req.Method, urlColor(req.URL))
 
 	if *showHeader {
 		printHeader(req.Header)
