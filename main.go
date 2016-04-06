@@ -22,6 +22,9 @@ type BufferCloser struct {
 	R    io.ReadCloser
 }
 
+var showBody = flag.Bool("body", false, "display request and response bodies")
+var showHeader = flag.Bool("header", false, "display headers")
+
 func (c *BufferCloser) Read(b []byte) (n int, err error) {
 	n, err = c.R.Read(b)
 	// log.Printf("%s %s n=%d err=%v", c.tipe, c.Id, n, err)
@@ -33,7 +36,7 @@ func (c *BufferCloser) Read(b []byte) (n int, err error) {
 }
 
 func (c BufferCloser) Close() error {
-	log.Printf("[%d] Close: %s\n", c.Id, c.tipe)
+	//log.Printf("[%d] Close: %s\n", c.Id, c.tipe)
 	return c.R.Close()
 }
 
@@ -45,13 +48,46 @@ func printHeader(header http.Header) {
 	log.Printf("headers:\n%s", headerDisplay)
 }
 
+func handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+	ip, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		log.Print(err)
+	}
+
+	log.Printf("[%d] %s --> %s %s", ctx.Session, ip, req.Method, req.URL)
+
+	if *showHeader {
+		printHeader(req.Header)
+	}
+	if *showBody {
+		req.Body = &BufferCloser{REQ, ctx.Session, req.Body}
+	}
+	return req, nil
+}
+
+func handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+	log.Printf("[%d] <-- %d %s", ctx.Session, resp.StatusCode, ctx.Req.URL.String())
+
+	location := resp.Header.Get("Location")
+	if location != "" {
+		log.Printf("Location: %s", location)
+	}
+
+	if *showHeader {
+		printHeader(resp.Header)
+	}
+	if *showBody {
+		resp.Body = &BufferCloser{RESP, ctx.Session, resp.Body}
+	}
+
+	return resp
+}
+
 // HTTP/HTTPS proxy for debugging
 func main() {
 	addr := flag.String("addr", ":8080", "proxy listen address")
 	hostmatch := flag.String("hostmatch", "^.*$", "hosts to trace (regexp pattern)")
 	verbose := flag.Bool("v", false, "verbose output")
-	showBody := flag.Bool("body", false, "display request and response bodies")
-	showHeader := flag.Bool("header", false, "display headers")
 	flag.Parse()
 
 	log.SetFlags(log.Lmicroseconds)
@@ -61,40 +97,9 @@ func main() {
 	proxy.OnRequest(goproxy.ReqHostMatches(regexp.MustCompile(*hostmatch))).
 		HandleConnect(goproxy.AlwaysMitm)
 
-	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-		ip, _, err := net.SplitHostPort(req.RemoteAddr)
-		if err != nil {
-			log.Print(err)
-		}
+	proxy.OnRequest().DoFunc(handleRequest)
 
-		log.Printf("[%d] %s --> %s %s", ctx.Session, ip, req.Method, req.URL)
-
-		if *showHeader {
-			printHeader(req.Header)
-		}
-		if *showBody {
-			req.Body = &BufferCloser{REQ, ctx.Session, req.Body}
-		}
-		return req, nil
-	})
-
-	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		log.Printf("[%d] <-- %d %s", ctx.Session, resp.StatusCode, ctx.Req.URL.String())
-
-		location := resp.Header.Get("Location")
-		if location != "" {
-			log.Printf("Location: %s", location)
-		}
-
-		if *showHeader {
-			printHeader(resp.Header)
-		}
-		if *showBody {
-			resp.Body = &BufferCloser{RESP, ctx.Session, resp.Body}
-		}
-
-		return resp
-	})
+	proxy.OnResponse().DoFunc(handleResponse)
 
 	proxy.Verbose = *verbose
 	log.Fatal(http.ListenAndServe(*addr, proxy))
